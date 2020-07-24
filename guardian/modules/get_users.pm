@@ -6,7 +6,7 @@ package get_users;
 require Exporter;
 our @ISA		= qw(Exporter);
 our @EXPORT		= qw(get_users);
-our $VERSION	= 0.03;
+our $VERSION	= 1.0;
 
 # executes at run-time, unless used as module
 __PACKAGE__->main() unless caller;
@@ -24,15 +24,15 @@ sub get_users {
 	# $users{USERNAME}[0] - UID
 	# $users{USERNAME}[1] - GID
 	my $users_ref = shift;
-	open(PASS, '<', '/etc/passwd') or main::logger("Unable to open passwd: $!");
+	open my $PASS, '<', '/etc/passwd') or main::logger("Unable to open passwd: $!";
 	my @line = ();
-	while (<PASS>) {
+	while (<$PASS>) {
 		@line = split ':', $_;
 		if ( ! exists $users_ref->{$line[2]} ) {
 			$users_ref->{$line[2]} = $line[0];
 		}
 	}
-	close(PASS);
+	close $PASS;
 	return 1;
 }
 
