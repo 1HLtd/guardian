@@ -1,0 +1,65 @@
+#!/usr/bin/perl -w
+# Remove an installed Perl module
+#
+# This code is covered by GPLv2 license
+
+BEGIN {
+	print "INC DIRS: @INC\n";
+	foreach my $env_key (keys(%ENV)) {
+		print "ENV KEY: $env_key ENV VALUE: $ENV{$env_key}\n";
+	}
+};
+
+print "Before strict\n";
+use strict;
+print "Before IO Dir\n";
+use IO::Dir;
+print "Before ExtUtils::Packlist\n";
+use ExtUtils::Packlist;
+print "Before ExtUtils::Installed\n";
+use ExtUtils::Installed;
+
+my $VERSION = '0.0.4';
+
+print "Finished printing env values\n";
+
+sub emptydir($) {
+	my ($dir) = @_;
+	my $dh = IO::Dir->new($dir) || return(0);
+	my @count = $dh->read();
+	$dh->close();
+	return(@count == 2 ? 1 : 0);
+}
+
+if (!defined($ARGV[0])) {
+	print "Usage: $0 module\n";
+	exit(1);
+}
+
+# Find all the installed packages
+print("Finding all installed modules...\n");
+my $installed = ExtUtils::Installed->new();
+
+foreach my $module (grep(!/^Perl$/, $installed->modules())) {
+	next if ($module ne $ARGV[0]);
+	my $version = $installed->version($module) || "???";
+	print("Found module $module Version $version\n");
+	print("Do you want to delete $module? [n] ");
+	my $r = <STDIN>; chomp($r);
+	if ($r && $r =~ /^y/i) {
+		# Remove all the files
+		foreach my $file (sort($installed->files($module))) {
+			print("rm $file\n");
+			unlink($file);
+		}
+		my $pf = $installed->packlist($module)->packlist_file();
+		print("rm $pf\n");
+		unlink($pf);
+		foreach my $dir (sort($installed->directory_tree($module))) {
+			if (emptydir($dir)) {
+				print("rmdir $dir\n");
+				rmdir($dir);
+			}
+		}
+	}
+}

@@ -1,0 +1,84 @@
+#!/bin/bash
+
+# 	runlevels start stop
+# chkconfig: 2345 99 17
+# description: LifeSigns monitoring daemon
+# probe: true
+# version: 0.2
+
+pidfile='/usr/local/1h/var/run/lifesigns.pid'
+lifesigns='/usr/local/1h/sbin/lifesigns'
+
+function success() {
+    echo -ne "\\033[60G[\\033[0;32m  OK  \\033[0;39m]\r\n"
+}
+
+function failure() {
+    echo -ne "\\033[60G[\\033[0;31mFAILED\\033[0;39m]\r\n"
+}
+
+function life_start() {
+	echo -n 'Starting LifeSigns: '
+	$lifesigns
+	if [ "$?" == 0 ]; then
+		success
+	else
+		failure
+	fi
+}
+
+function life_status() {
+	if [ -f $pidfile ] && [ -d /proc/$(<$pidfile) ]; then
+		cmdline=$(</proc/$(<$pidfile)/cmdline)
+		if [[ "$cmdline" =~ LifeSigns ]]; then
+			return 0;
+		else
+			return 1;
+		fi
+	else
+		return 1;
+	fi
+}
+
+function life_stop() {
+	echo -n 'Stopping LifeSigns: '
+	life_status
+	if [ $? == 0 ]; then
+		kill $(<$pidfile)
+	else
+		success
+		return 0
+	fi
+	sleep 0.2
+	life_status
+	if [ $? == 0 ]; then
+		failure
+	else
+		success
+	fi
+}
+
+case "$1" in
+	start)
+		life_start
+	;;
+	stop)
+		life_stop
+	;;
+	restart)
+		life_stop
+		sleep 0.5
+		life_start
+	;;
+	status)
+		echo -n 'LifeSigns status: '
+		life_status
+		if [ $? == 0 ]; then
+			success
+		else
+			failure
+		fi
+	;;
+	*)
+		echo "Usage $0 start|stop|restart|status"
+esac

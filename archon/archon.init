@@ -1,0 +1,128 @@
+#!/bin/bash
+#
+# chkconfig: 345 10 90
+# description: Init script for 1H Archon Monitoring Daemon
+
+VERSION='0.0.5'
+
+monitor='/usr/local/1h/sbin/archon-monitor.pl'
+flogger='/usr/local/1h/sbin/archon-logger.pl'
+dbwork='/usr/local/1h/sbin/archon-dbwork.pl'
+gather='/usr/local/1h/sbin/archon-gather.pl'
+
+pidfile='/usr/local/1h/var/run/archon.pid'
+conffile='/usr/local/1h/etc/archon.conf'
+
+function startprd() {
+	if ( ! [ -f "$conffile" ] ); then
+		echo "$conffile des not exist!"
+	fi
+
+	archon_pass=$(grep pgpass $conffile)
+
+	if ( [ -z "$archon_pass" ] || [ "$archon_pass" = "pgpass=NO_PASS_HERE" ] ); then
+		if ( ! [ -f /root/.pgpass ] ); then
+			echo "/root/.pgpass dos not exist!"
+			exit 1
+		fi
+
+		portal_pass=$(awk -F : '$4 ~ /^portal$/{print $5}' /root/.pgpass)
+
+		if [ -z "$portal_pass" ]; then
+			echo "Portal pass is empty!"
+			exit 1
+		fi
+
+		if ( ! sed -i "/^pgpass/s/=.*/=$portal_pass/" $conffile ); then
+			echo "Failed to fix the db pass for portal in $conffile!"
+			exit 1
+		fi
+	fi
+
+	# Start 2 parallel Logger workers
+	for i in $(seq 2); do
+		if ( ! $flogger ); then
+			echo "Failed to start $flogger"
+			exit 1
+		fi
+	done
+
+	# Start 4 parallel DB workers
+	for i in $(seq 4); do
+		if ( ! $dbwork ); then
+			echo "Failed to start $dbwork"
+			exit 1
+		fi
+	done
+
+	# Start 4 parallel Gather workers
+	for i in $(seq 10); do
+		if ( ! $gather ); then
+			echo "Failed to start $gather"
+			exit 1
+		fi
+	done
+
+	# Start 1 monitor to rule them all :)
+	if ( ! $monitor ); then
+		echo "Failed to start $monitor"
+		exit 1
+	fi
+
+	if ( ! statusprd ); then
+		exit 1
+	fi
+
+	exit 0
+}
+
+function checkscript() {
+	if ( ! perl -T -c $monitor ); then
+		return 1
+	fi
+	return 0
+}
+function statusprd() {
+	echo -n "Archon monitor: "
+	if [ -f $pidfile ]; then
+		if ( [ -d "/proc/$(<$pidfile)" ] && grep -q 'Archon-monitor' "/proc/$(<$pidfile)/cmdline" ); then
+			echo -ne "\\033[60G[\\033[0;38m  OK  \\033[0;39m]\r\n"
+			return 0
+		else
+			echo -ne "\\033[60G[\\033[0;38m DOWN \\033[0;39m]\r\n"
+			return 1
+		fi
+	else
+		echo -ne "\\033[60G[\\033[0;38m DOWN \\033[0;39m]\r\n"
+		return 1
+	fi
+}
+
+function stopprd() {
+	kill -9 $(<$pidfile) >> /dev/null 2>&1
+	pkill -f Archon >> /dev/null 2>&1 
+	#statusprd 
+}
+
+case "$1" in
+	start)
+		startprd
+	;;
+	stop)
+		if ( statusprd ); then
+			stopprd
+		fi
+	;;
+	restart)
+		if ( checkscript ); then
+			stopprd
+			startprd
+		fi
+	;;
+	status)
+		statusprd
+	;;
+	*)
+		echo "Usage: $0 {start|stop|restart|status|check}"
+		exit 1
+esac

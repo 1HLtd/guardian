@@ -1,0 +1,126 @@
+#!/bin/bash
+#
+# [Guardian]
+#	This is the daemon which collects system information and reacts
+#	based on the gathered information.
+#
+# chkconfig: 2345 99 01
+# description: System Guardian
+# probe: true
+# version: 0.0.7
+
+guard_config='/usr/local/1h/etc/guardian.conf'
+guardian='/usr/local/1h/sbin/guardian'
+error_logfile='/usr/local/1h/var/log/guardian-error.log'
+pidfile=$(awk -F'=' '/^pidfile\s*=/{print $2}' $guard_config)
+
+function success() {
+    echo -ne "\\033[60G[\\033[0;32m  OK  \\033[0;39m]\r\n"
+}
+
+function failure() {
+    echo -ne "\\033[60G[\\033[0;31mFAILED\\033[0;39m]\r\n"
+}
+
+function check_status() {
+	check=0;
+	for i in 1 2 3 4 5; do
+		if [ -f $pidfile ]; then
+			pid=$(<$pidfile)
+			if [[ "$pid" =~ ^[0-9]+$ ]]; then
+				if [ "$1" == 0 ]; then
+				# check for started
+					if [ -d /proc/$pid ]; then
+						check=1
+						continue 6
+					fi
+				else
+				# check for stopped
+					if [ ! -d /proc/$pid ]; then
+						check=1
+						continue 6
+					fi
+				fi
+			else
+				if [ "$1" == 1 ]; then
+					check=1
+					continue 6
+				fi
+			fi
+		else
+			if [ "$1" != 0 ]; then
+				check=1
+				continue 6
+			fi
+		fi
+		sleep 1
+	done
+	if [ $check == "1" ]; then
+		success
+	else
+		failure
+	fi
+}
+
+function start_guardian() {
+	echo -n 'Starting guardian:'
+	if [ -f $pidfile ]; then
+		pid=$(<$pidfile)
+		cmdline=$(cat "/proc/${pid}/cmdline" 2>/dev/null)
+		if [[ "$pid" =~ ^[0-9]+$ ]] && [ -d /proc/$pid ] && [ "${cmdline}" ] && [[ "${cmdline}" =~ Guardian ]]; then
+			echo 'already running!'
+			exit
+		else
+			unlink ${pidfile}
+		fi
+	fi
+	/etc/init.d/lifesigns stop > /dev/null 2>&1
+	ulimit -c 0
+	if ( $guardian ); then
+		success
+	else
+		#failure
+		success
+	fi
+	touch /var/lock/subsys/guardian
+}
+
+function stop_guardian() {
+	echo -n 'Stopping guardian:'
+	if [ -f "$pidfile" ]; then
+		kill $(<$pidfile) 2>/dev/null
+	else
+		echo "/etc/init.d/guardian: $pidfile does not exist!" >> "$error_logfile"
+	fi
+	check_status 1
+	rm -f /var/lock/subsys/guardian
+}
+
+
+case "$1" in
+	start)
+		start_guardian
+	;;
+	stop)
+		stop_guardian
+	;;
+	status)
+		echo -n 'Guardian status:'
+		check_status 0
+	;;
+	restart)
+		stop_guardian
+		start_guardian
+	;;
+	check_services)
+		sed -i '/check_services/D' $guard_config
+		. /usr/local/1h/bin/guardian_check_services.sh
+		configure_guardian >> $guard_config
+	;;
+	version)
+		$guardian version
+	;;	
+	*)
+		echo "Guardian init version: $version"
+		echo "Usage: $0 start|stop|restart"
+esac
